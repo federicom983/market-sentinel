@@ -5,12 +5,14 @@ fontLink.rel = "stylesheet";
 fontLink.href = "https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap";
 document.head.appendChild(fontLink);
 
-const REFRESH_INTERVAL = 60 * 60;
-const LS_POLY_KEY     = "ms_polygon_key";
-const LS_FRED_KEY     = "ms_fred_key";
-const LS_TG_TOKEN     = "ms_tg_token";
-const LS_TG_CHAT      = "ms_tg_chat";
-const ALERT_THRESHOLD = 60;
+const REFRESH_INTERVAL  = 60 * 60;
+const BACKEND_URL       = "https://market-sentinel-backend-production.up.railway.app";
+const LS_POLY_KEY       = "ms_polygon_key";
+const LS_FRED_KEY       = "ms_fred_key";
+const LS_TG_TOKEN       = "ms_tg_token";
+const LS_TG_CHAT        = "ms_tg_chat";
+const LS_NEWS_KEY       = "ms_news_key";
+const ALERT_THRESHOLD   = 60;
 
 const styles = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -109,9 +111,15 @@ const styles = `
   .news-input { width: 100%; background: #080b0f; border: 1px solid #1a2330; color: #c8d0d8; font-family: 'Space Mono', monospace; font-size: 12px; padding: 10px 12px; border-radius: 4px; resize: vertical; min-height: 80px; outline: none; line-height: 1.5; transition: border-color 0.2s; }
   .news-input:focus { border-color: #2a3f55; }
   .news-input::placeholder { color: #2a3f55; }
-  .btn-analyze { margin-top: 10px; width: 100%; background: #0d1e2e; border: 1px solid #1a3550; color: #00e5a0; font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 10px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
+  .news-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-analyze { flex: 1; background: #0d1e2e; border: 1px solid #1a3550; color: #00e5a0; font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 10px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
   .btn-analyze:hover { background: #112234; border-color: #00e5a0; }
   .btn-analyze:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-fetch-news { background: #0d1a2e; border: 1px solid #1a3040; color: #3d8fb5; font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 10px 16px; border-radius: 4px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+  .btn-fetch-news:hover { background: #0f2035; border-color: #3d8fb5; }
+  .btn-fetch-news:disabled { opacity: 0.4; cursor: not-allowed; }
+  .news-count { font-size: 10px; color: #3d5060; margin-top: 6px; }
+
   .sentiment-result { margin-top: 14px; padding: 12px; background: #080b0f; border: 1px solid #1a2330; border-radius: 4px; font-size: 11px; line-height: 1.8; color: #8fa0b0; animation: fadeIn 0.4s ease; }
   @keyframes fadeIn { from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:none;} }
   .sentiment-score-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
@@ -130,86 +138,86 @@ const styles = `
 `;
 
 // ─── INDICATORS ───────────────────────────────────────────────────────────────
-function calcRSI(closes, period = 14) {
-  if (closes.length < period + 1) return null;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const d = closes[i] - closes[i - 1];
-    if (d > 0) gains += d; else losses -= d;
+function calcRSI(closes, period=14) {
+  if (closes.length<period+1) return null;
+  let gains=0,losses=0;
+  for (let i=closes.length-period;i<closes.length;i++) {
+    const d=closes[i]-closes[i-1]; if(d>0) gains+=d; else losses-=d;
   }
-  const ag = gains / period, al = losses / period;
-  if (al === 0) return 100;
-  return parseFloat((100 - 100 / (1 + ag / al)).toFixed(1));
+  const ag=gains/period,al=losses/period;
+  if (al===0) return 100;
+  return parseFloat((100-100/(1+ag/al)).toFixed(1));
 }
-function calcSMA(arr, n) { if (arr.length < n) return null; return arr.slice(-n).reduce((a,b)=>a+b,0)/n; }
-function calcEMA(arr, n) {
-  if (arr.length < n) return null;
-  const k = 2/(n+1); let ema = arr.slice(0,n).reduce((a,b)=>a+b,0)/n;
-  for (let i=n;i<arr.length;i++) ema = arr[i]*k+ema*(1-k); return ema;
+function calcSMA(arr,n){if(arr.length<n)return null;return arr.slice(-n).reduce((a,b)=>a+b,0)/n;}
+function calcEMA(arr,n){
+  if(arr.length<n)return null;
+  const k=2/(n+1);let ema=arr.slice(0,n).reduce((a,b)=>a+b,0)/n;
+  for(let i=n;i<arr.length;i++)ema=arr[i]*k+ema*(1-k);return ema;
 }
-function calcMACD(arr) { const e12=calcEMA(arr,12),e26=calcEMA(arr,26); if(!e12||!e26) return null; return parseFloat((e12-e26).toFixed(2)); }
+function calcMACD(arr){const e12=calcEMA(arr,12),e26=calcEMA(arr,26);if(!e12||!e26)return null;return parseFloat((e12-e26).toFixed(2));}
 
 // ─── SCORING ─────────────────────────────────────────────────────────────────
-const riskColor = (s) => s>=75?"#ff3c3c":s>=55?"#ffbe00":"#00e5a0";
-const riskLabel = (s) => {
-  if (s>=75) return {text:"⚠ RISCHIO ELEVATO — Valutare riduzione esposizione",cls:"danger"};
-  if (s>=55) return {text:"◈ ATTENZIONE — Monitorare segnali in evoluzione",cls:"watch"};
-  return {text:"✓ MERCATO STABILE — Nessuna azione raccomandata",cls:"safe"};
+const riskColor=(s)=>s>=75?"#ff3c3c":s>=55?"#ffbe00":"#00e5a0";
+const riskLabel=(s)=>{
+  if(s>=75)return{text:"⚠ RISCHIO ELEVATO — Valutare riduzione esposizione",cls:"danger"};
+  if(s>=55)return{text:"◈ ATTENZIONE — Monitorare segnali in evoluzione",cls:"watch"};
+  return{text:"✓ MERCATO STABILE — Nessuna azione raccomandata",cls:"safe"};
 };
-const badgeFn      = (sc) => sc>=70?"red":sc>=50?"yellow":"green";
-const scoreRSI     = (r) => !r?50:r>80?90:r>70?75:r>60?55:r<30?15:30;
-const scoreVIXY    = (v) => !v?50:v>30?90:v>22?75:v>16?50:25;
-const scoreMACross = (a,b) => !a||!b?50:a/b<0.98?80:a/b<1.0?60:a/b>1.05?20:35;
-const scoreMACDFn  = (m) => !m?50:m<-5?78:m<-2?62:m>3?35:48;
+const badgeFn=(sc)=>sc>=70?"red":sc>=50?"yellow":"green";
+const scoreRSI=(r)=>!r?50:r>80?90:r>70?75:r>60?55:r<30?15:30;
+const scoreVIXY=(v)=>!v?50:v>30?90:v>22?75:v>16?50:25;
+const scoreMACross=(a,b)=>!a||!b?50:a/b<0.98?80:a/b<1.0?60:a/b>1.05?20:35;
+const scoreMACDFn=(m)=>!m?50:m<-5?78:m<-2?62:m>3?35:48;
 
 // ─── POLYGON ─────────────────────────────────────────────────────────────────
-const sleep = (ms) => new Promise(r=>setTimeout(r,ms));
-const DELAY = 13500;
-async function polyGet(path,key) {
+const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+const DELAY=13500;
+async function polyGet(path,key){
   const sep=path.includes("?")?"&":"?";
   const r=await fetch(`https://api.polygon.io${path}${sep}apiKey=${key}`);
-  if (!r.ok) throw new Error(`Polygon ${r.status}`);
+  if(!r.ok)throw new Error(`Polygon ${r.status}`);
   return r.json();
 }
-function daysAgo(n) { const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; }
-async function getBars(ticker,key,days=220) {
-  const data=await polyGet(`/v2/aggs/ticker/${ticker}/range/1/day/${daysAgo(days+30)}/${daysAgo(1)}?adjusted=true&sort=asc&limit=300`,key);
-  if (!data.results?.length) throw new Error(`Nessun dato per ${ticker}`);
+function daysAgo(n){const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().split("T")[0];}
+async function getBars(ticker,key,days=220){
+  const data=await polyGet(`/v2/aggs/ticker/${ticker}/range/1/day/${daysAgo(days+60)}/${daysAgo(1)}?adjusted=true&sort=asc&limit=300`,key);
+  if(!data.results?.length)throw new Error(`Nessun dato per ${ticker}`);
   return data.results;
 }
-async function getPrev(ticker,key) {
+async function getPrev(ticker,key){
   const data=await polyGet(`/v2/aggs/ticker/${ticker}/prev`,key);
-  if (!data.results?.length) throw new Error(`Nessun prev close per ${ticker}`);
+  if(!data.results?.length)throw new Error(`Nessun prev close per ${ticker}`);
   return data.results[0];
 }
 
-// ─── FRED via backend ─────────────────────────────────────────────────────────
-async function fetchFredData(fredKey) {
-  const r=await fetch(`http://localhost:8000/api/fred-data?api_key=${fredKey}`);
-  if (!r.ok) { const e=await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
+// ─── BACKEND CALLS ────────────────────────────────────────────────────────────
+async function fetchFredData(fredKey){
+  const r=await fetch(`${BACKEND_URL}/api/fred-data?api_key=${fredKey}`);
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${r.status}`);}
   return r.json();
 }
-
-// ─── TELEGRAM via backend ─────────────────────────────────────────────────────
-async function sendTelegramAlert(payload) {
-  const r = await fetch("http://localhost:8000/api/send-alert", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+async function fetchNews(newsKey){
+  const r=await fetch(`${BACKEND_URL}/api/news?api_key=${newsKey}`);
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${r.status}`);}
+  return r.json();
+}
+async function sendTelegramAlert(payload){
+  const r=await fetch(`${BACKEND_URL}/api/send-alert`,{
+    method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),
   });
-  if (!r.ok) { const e=await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${r.status}`);}
   return r.json();
 }
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
-function formatCountdown(secs) {
+function formatCountdown(secs){
   const m=Math.floor(secs/60).toString().padStart(2,"0");
   const s=(secs%60).toString().padStart(2,"0");
   return `${m}:${s}`;
 }
 
 // ─── GAUGE ───────────────────────────────────────────────────────────────────
-function ArcGauge({score}) {
+function ArcGauge({score}){
   const color=riskColor(score);
   const toRad=d=>d*Math.PI/180;
   const arc=(s,e,r)=>{
@@ -217,7 +225,7 @@ function ArcGauge({score}) {
     const x2=100+r*Math.cos(toRad(e)),y2=100+r*Math.sin(toRad(e));
     return `M ${x1} ${y1} A ${r} ${r} 0 ${e-s>180?1:0} 1 ${x2} ${y2}`;
   };
-  return (
+  return(
     <svg viewBox="0 0 200 140" width="200" height="140" style={{filter:"drop-shadow(0 0 12px rgba(0,229,160,0.12))"}}>
       <path d={arc(200,540,80)} fill="none" stroke="#1a2330" strokeWidth="12" strokeLinecap="round"/>
       <path d={arc(200,200+(score/100)*340,80)} fill="none" stroke={color} strokeWidth="12" strokeLinecap="round"
@@ -230,9 +238,9 @@ function ArcGauge({score}) {
   );
 }
 
-function SigRow({name,val,badge,label,shimmer}) {
+function SigRow({name,val,badge,label,shimmer}){
   const valColor=badge==="red"?"#ff3c3c":badge==="yellow"?"#ffbe00":badge==="green"?"#00e5a0":"#5a7080";
-  return (
+  return(
     <tr>
       <td className="sig-name">{name}</td>
       <td className="sig-val" style={{color:valColor}}>{shimmer?<span className="skeleton" style={{width:44}}/>:val}</td>
@@ -241,7 +249,7 @@ function SigRow({name,val,badge,label,shimmer}) {
   );
 }
 
-async function claudeSentiment(text) {
+async function claudeSentiment(text){
   const r=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
@@ -260,34 +268,38 @@ const EMPTY_TECH = ["VIXY (VIX proxy)","RSI SPY 14d","RSI QQQ 14d","SPY MA50/MA2
 const EMPTY_MACRO= ["CPI YoY (US)","Fed Funds Rate","Consumer Sentiment","Yield 10Y−2Y","Disoccupazione"].map(n=>({name:n,val:"—",badge:"gray",label:"—"}));
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
-export default function MarketSentinel() {
-  const [polyKey,setPolyKeyRaw]   = useState(()=>localStorage.getItem(LS_POLY_KEY)||"");
-  const [fredKey,setFredKeyRaw]   = useState(()=>localStorage.getItem(LS_FRED_KEY)||"");
-  const [tgToken,setTgTokenRaw]   = useState(()=>localStorage.getItem(LS_TG_TOKEN)||"");
-  const [tgChat,setTgChatRaw]     = useState(()=>localStorage.getItem(LS_TG_CHAT)||"");
+export default function MarketSentinel(){
+  const [polyKey,setPolyKeyRaw] = useState(()=>localStorage.getItem(LS_POLY_KEY)||"");
+  const [fredKey,setFredKeyRaw] = useState(()=>localStorage.getItem(LS_FRED_KEY)||"");
+  const [tgToken,setTgTokenRaw] = useState(()=>localStorage.getItem(LS_TG_TOKEN)||"");
+  const [tgChat,setTgChatRaw]   = useState(()=>localStorage.getItem(LS_TG_CHAT)||"");
+  const [newsKey,setNewsKeyRaw] = useState(()=>localStorage.getItem(LS_NEWS_KEY)||"");
 
-  const setPolyKey = v=>{setPolyKeyRaw(v); v?localStorage.setItem(LS_POLY_KEY,v):localStorage.removeItem(LS_POLY_KEY);};
-  const setFredKey = v=>{setFredKeyRaw(v); v?localStorage.setItem(LS_FRED_KEY,v):localStorage.removeItem(LS_FRED_KEY);};
-  const setTgToken = v=>{setTgTokenRaw(v); v?localStorage.setItem(LS_TG_TOKEN,v):localStorage.removeItem(LS_TG_TOKEN);};
-  const setTgChat  = v=>{setTgChatRaw(v);  v?localStorage.setItem(LS_TG_CHAT,v):localStorage.removeItem(LS_TG_CHAT);};
+  const setPolyKey=v=>{setPolyKeyRaw(v);v?localStorage.setItem(LS_POLY_KEY,v):localStorage.removeItem(LS_POLY_KEY);};
+  const setFredKey=v=>{setFredKeyRaw(v);v?localStorage.setItem(LS_FRED_KEY,v):localStorage.removeItem(LS_FRED_KEY);};
+  const setTgToken=v=>{setTgTokenRaw(v);v?localStorage.setItem(LS_TG_TOKEN,v):localStorage.removeItem(LS_TG_TOKEN);};
+  const setTgChat=v=>{setTgChatRaw(v);v?localStorage.setItem(LS_TG_CHAT,v):localStorage.removeItem(LS_TG_CHAT);};
+  const setNewsKey=v=>{setNewsKeyRaw(v);v?localStorage.setItem(LS_NEWS_KEY,v):localStorage.removeItem(LS_NEWS_KEY);};
 
-  const [clock,setClock]             = useState("");
-  const [polyStatus,setPolyStatus]   = useState(null);
-  const [polyMsg,setPolyMsg]         = useState("");
-  const [polyUpdate,setPolyUpdate]   = useState(null);
-  const [marketData,setMarketData]   = useState(null);
-  const [techSignals,setTechSignals] = useState(null);
-  const [techScore,setTechScore]     = useState(null);
-  const [fredStatus,setFredStatus]   = useState(null);
-  const [fredMsg,setFredMsg]         = useState("");
-  const [fredUpdate,setFredUpdate]   = useState(null);
+  const [clock,setClock]               = useState("");
+  const [polyStatus,setPolyStatus]     = useState(null);
+  const [polyMsg,setPolyMsg]           = useState("");
+  const [polyUpdate,setPolyUpdate]     = useState(null);
+  const [marketData,setMarketData]     = useState(null);
+  const [techSignals,setTechSignals]   = useState(null);
+  const [techScore,setTechScore]       = useState(null);
+  const [fredStatus,setFredStatus]     = useState(null);
+  const [fredMsg,setFredMsg]           = useState("");
+  const [fredUpdate,setFredUpdate]     = useState(null);
   const [macroSignals,setMacroSignals] = useState(null);
-  const [macroScore,setMacroScore]   = useState(null);
-  const [newsText,setNewsText]       = useState("");
-  const [aiLoading,setAiLoading]     = useState(false);
-  const [sentiment,setSentiment]     = useState(null);
-  const [sentScore,setSentScore]     = useState(null);
-  const [tgStatus,setTgStatus]       = useState(null); // null | "ok" | "error" | "sending"
+  const [macroScore,setMacroScore]     = useState(null);
+  const [newsText,setNewsText]         = useState("");
+  const [newsLoading,setNewsLoading]   = useState(false);
+  const [newsCount,setNewsCount]       = useState(null);
+  const [aiLoading,setAiLoading]       = useState(false);
+  const [sentiment,setSentiment]       = useState(null);
+  const [sentScore,setSentScore]       = useState(null);
+  const [tgStatus,setTgStatus]         = useState(null);
   const [alerts,setAlerts] = useState([
     {time:"—",color:"#3d5060",text:"Carica i dati per attivare il monitoraggio live."},
   ]);
@@ -296,51 +308,39 @@ export default function MarketSentinel() {
   const [countdown,setCountdown]       = useState(REFRESH_INTERVAL);
   const countdownRef                   = useRef(REFRESH_INTERVAL);
   const schedulerIntervalRef           = useRef(null);
-  const lastAlertScoreRef              = useRef(null); // per evitare alert ripetuti alla stessa soglia
+  const lastAlertScoreRef              = useRef(null);
 
   useEffect(()=>{
     const id=setInterval(()=>setClock(
       new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit",second:"2-digit"})+" CET"
     ),1000);
-    return ()=>clearInterval(id);
+    return()=>clearInterval(id);
   },[]);
 
-  // ── TELEGRAM SEND ────────────────────────────────────────────────────────────
-  const sendAlert = useCallback(async (overall, tScore, mScore, sScore, trigger, topSignals=[]) => {
-    if (!tgToken.trim() || !tgChat.trim()) return;
+  // ── TELEGRAM ────────────────────────────────────────────────────────────────
+  const sendAlert=useCallback(async(overall,tScore,mScore,sScore,trigger,topSignals=[])=>{
+    if(!tgToken.trim()||!tgChat.trim())return;
     setTgStatus("sending");
-    try {
-      await sendTelegramAlert({
-        bot_token: tgToken.trim(),
-        chat_id: tgChat.trim(),
-        overall_score: overall,
-        tech_score: tScore,
-        macro_score: mScore,
-        sent_score: sScore,
-        trigger,
-        top_signals: topSignals,
-      });
+    try{
+      await sendTelegramAlert({bot_token:tgToken.trim(),chat_id:tgChat.trim(),overall_score:overall,tech_score:tScore,macro_score:mScore,sent_score:sScore,trigger,top_signals:topSignals});
       setTgStatus("ok");
       const t=new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
-      setAlerts(p=>[{time:t,color:"#3d8fb5",text:`📱 Alert Telegram inviato (score ${overall}, trigger: ${trigger})`},...p]);
-    } catch(e) {
-      setTgStatus("error");
-      console.error("Telegram error:", e.message);
-    }
-  }, [tgToken, tgChat]);
+      setAlerts(p=>[{time:t,color:"#3d8fb5",text:`📱 Alert Telegram inviato (score ${overall})`},...p]);
+    }catch(e){setTgStatus("error");console.error("TG:",e.message);}
+  },[tgToken,tgChat]);
 
-  // ── FETCH POLYGON ─────────────────────────────────────────────────────────────
-  const fetchPolygon = useCallback(async (key) => {
-    const k=key||polyKey; if (!k.trim()) return;
-    setPolyStatus("loading"); setPolyMsg("Caricamento SPY…");
-    try {
-      const spyBars=await getBars("SPY",k); await sleep(DELAY);
+  // ── POLYGON ──────────────────────────────────────────────────────────────────
+  const fetchPolygon=useCallback(async(key)=>{
+    const k=key||polyKey;if(!k.trim())return null;
+    setPolyStatus("loading");setPolyMsg("Caricamento SPY…");
+    try{
+      const spyBars=await getBars("SPY",k);await sleep(DELAY);
       setPolyMsg("Caricamento QQQ…");
-      const qqqBars=await getBars("QQQ",k); await sleep(DELAY);
+      const qqqBars=await getBars("QQQ",k);await sleep(DELAY);
       setPolyMsg("Caricamento VIXY…");
-      let vixyBars=null; try{vixyBars=await getBars("VIXY",k,30);}catch(_){}
-      await sleep(DELAY); setPolyMsg("Caricamento GLD…");
-      const gldPrev=await getPrev("GLD",k); await sleep(DELAY);
+      let vixyBars=null;try{vixyBars=await getBars("VIXY",k,30);}catch(_){}
+      await sleep(DELAY);setPolyMsg("Caricamento GLD…");
+      const gldPrev=await getPrev("GLD",k);await sleep(DELAY);
       setPolyMsg("Caricamento UUP…");
       const uupPrev=await getPrev("UUP",k);
 
@@ -378,105 +378,105 @@ export default function MarketSentinel() {
         {name:"Dollar (UUP)",val:`$${uupPrev.c.toFixed(2)}`,chg:`${uupChg>=0?"+":""}${uupChg.toFixed(2)}%`,dir:uupChg>=0?"pos":"neg"},
       ]);
       setPolyUpdate(new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}));
-      setPolyStatus("ok"); setPolyMsg("");
-      return {tScore, topSignals: sigs.filter(s=>s.score>=60).map(s=>`${s.name}: ${s.label}`)};
-    } catch(e) { setPolyStatus("error"); setPolyMsg(e.message||"Errore"); return null; }
-  }, [polyKey]);
+      setPolyStatus("ok");setPolyMsg("");
+      return{tScore,topSignals:sigs.filter(s=>s.score>=60).map(s=>`${s.name}: ${s.label}`)};
+    }catch(e){setPolyStatus("error");setPolyMsg(e.message||"Errore");return null;}
+  },[polyKey]);
 
-  // ── FETCH FRED ────────────────────────────────────────────────────────────────
-  const fetchFred = useCallback(async (key) => {
-    const k=key||fredKey; if (!k.trim()) return null;
-    setFredStatus("loading"); setFredMsg("Connessione backend…");
-    try {
+  // ── FRED ─────────────────────────────────────────────────────────────────────
+  const fetchFred=useCallback(async(key)=>{
+    const k=key||fredKey;if(!k.trim())return null;
+    setFredStatus("loading");setFredMsg("Connessione backend…");
+    try{
       const data=await fetchFredData(k);
-      setMacroScore(data.macro_score);
-      setMacroSignals(data.signals);
+      setMacroScore(data.macro_score);setMacroSignals(data.signals);
       setFredUpdate(new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}));
-      setFredStatus("ok"); setFredMsg("");
-      return {mScore: data.macro_score, topSignals: data.signals.filter(s=>s.score>=60).map(s=>`${s.name}: ${s.label}`)};
-    } catch(e) { setFredStatus("error"); setFredMsg(e.message||"Errore"); return null; }
-  }, [fredKey]);
+      setFredStatus("ok");setFredMsg("");
+      return{mScore:data.macro_score,topSignals:data.signals.filter(s=>s.score>=60).map(s=>`${s.name}: ${s.label}`)};
+    }catch(e){setFredStatus("error");setFredMsg(e.message||"Errore");return null;}
+  },[fredKey]);
 
-  // ── FETCH ALL + alert logic ───────────────────────────────────────────────────
-  const fetchAll = useCallback(async (trigger="refresh") => {
-    const [polyResult, fredResult] = await Promise.allSettled([
-      fetchPolygon(polyKey),
-      fetchFred(fredKey),
-    ]);
-
-    const tScore = polyResult.status==="fulfilled" ? polyResult.value?.tScore ?? 50 : 50;
-    const mScore = fredResult.status==="fulfilled"  ? fredResult.value?.mScore  ?? 50 : 50;
-    const sScore = sentScore ?? 50;
-    const overall = Math.round(tScore*0.4 + mScore*0.3 + sScore*0.3);
-
-    const topSignals = [
-      ...(polyResult.value?.topSignals||[]),
-      ...(fredResult.value?.topSignals||[]),
-    ];
-
-    // Alert Telegram al refresh (sempre)
-    sendAlert(overall, tScore, mScore, sScore, "refresh", topSignals);
-
-    // Alert Telegram soglia (solo se supera 60 e non era già sopra)
-    if (overall >= ALERT_THRESHOLD && lastAlertScoreRef.current < ALERT_THRESHOLD) {
-      sendAlert(overall, tScore, mScore, sScore, "threshold", topSignals);
+  // ── NEWS FETCH ────────────────────────────────────────────────────────────────
+  const fetchNewsAuto=useCallback(async()=>{
+    if(!newsKey.trim())return;
+    setNewsLoading(true);
+    try{
+      const data=await fetchNews(newsKey.trim());
+      setNewsText(data.text);
+      setNewsCount(data.count);
+    }catch(e){
+      const t=new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
+      setAlerts(p=>[{time:t,color:"#ff3c3c",text:`NewsAPI: ${e.message}`},...p]);
     }
-    lastAlertScoreRef.current = overall;
+    setNewsLoading(false);
+  },[newsKey]);
 
+  // ── FETCH ALL ─────────────────────────────────────────────────────────────────
+  const fetchAll=useCallback(async(trigger="refresh")=>{
+    const[polyResult,fredResult]=await Promise.allSettled([
+      fetchPolygon(polyKey),fetchFred(fredKey),
+    ]);
+    const tScore=polyResult.status==="fulfilled"?polyResult.value?.tScore??50:50;
+    const mScore=fredResult.status==="fulfilled"?fredResult.value?.mScore??50:50;
+    const sScore=sentScore??50;
+    const overall=Math.round(tScore*0.4+mScore*0.3+sScore*0.3);
+    const topSignals=[...(polyResult.value?.topSignals||[]),...(fredResult.value?.topSignals||[])];
+    sendAlert(overall,tScore,mScore,sScore,"refresh",topSignals);
+    if(overall>=ALERT_THRESHOLD&&(lastAlertScoreRef.current??0)<ALERT_THRESHOLD){
+      sendAlert(overall,tScore,mScore,sScore,"threshold",topSignals);
+    }
+    lastAlertScoreRef.current=overall;
+    // Auto-fetch news se la key è configurata
+    if(newsKey.trim()) fetchNewsAuto();
     const t=new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
     setAlerts(p=>[{time:t,color:overall>=75?"#ff3c3c":overall>=60?"#ffbe00":"#3d5060",text:`Dati aggiornati. Risk Score: ${overall}/100`},...p]);
-  }, [fetchPolygon, fetchFred, sentScore, sendAlert, polyKey, fredKey]);
+  },[fetchPolygon,fetchFred,sentScore,sendAlert,polyKey,fredKey,newsKey,fetchNewsAuto]);
 
   // ── SCHEDULER ────────────────────────────────────────────────────────────────
   useEffect(()=>{
-    if (!schedulerOn) {
-      if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
-      setCountdown(REFRESH_INTERVAL); countdownRef.current=REFRESH_INTERVAL; return;
+    if(!schedulerOn){
+      if(schedulerIntervalRef.current)clearInterval(schedulerIntervalRef.current);
+      setCountdown(REFRESH_INTERVAL);countdownRef.current=REFRESH_INTERVAL;return;
     }
     fetchAll("refresh");
-    countdownRef.current=REFRESH_INTERVAL; setCountdown(REFRESH_INTERVAL);
+    countdownRef.current=REFRESH_INTERVAL;setCountdown(REFRESH_INTERVAL);
     schedulerIntervalRef.current=setInterval(()=>{
-      countdownRef.current-=1; setCountdown(countdownRef.current);
-      if (countdownRef.current<=0) {
-        fetchAll("refresh");
-        countdownRef.current=REFRESH_INTERVAL; setCountdown(REFRESH_INTERVAL);
-      }
+      countdownRef.current-=1;setCountdown(countdownRef.current);
+      if(countdownRef.current<=0){fetchAll("refresh");countdownRef.current=REFRESH_INTERVAL;setCountdown(REFRESH_INTERVAL);}
     },1000);
-    return ()=>{ if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current); };
+    return()=>{if(schedulerIntervalRef.current)clearInterval(schedulerIntervalRef.current);};
   },[schedulerOn]); // eslint-disable-line
 
-  // Auto-load al primo avvio
   useEffect(()=>{
     const pk=localStorage.getItem(LS_POLY_KEY);
     const fk=localStorage.getItem(LS_FRED_KEY);
-    if (pk) fetchPolygon(pk);
-    if (fk) fetchFred(fk);
+    if(pk)fetchPolygon(pk);
+    if(fk)fetchFred(fk);
   },[]); // eslint-disable-line
 
-  // ── SENTIMENT ─────────────────────────────────────────────────────────────────
-  const handleAnalyze = useCallback(async()=>{
-    if (!newsText.trim()) return;
-    setAiLoading(true); setSentiment(null);
-    try {
+  // ── SENTIMENT ────────────────────────────────────────────────────────────────
+  const handleAnalyze=useCallback(async()=>{
+    if(!newsText.trim())return;
+    setAiLoading(true);setSentiment(null);
+    try{
       const r=await claudeSentiment(newsText);
-      setSentiment(r); setSentScore(r.sentiment_score);
-      if (r.sentiment_score>=55) {
+      setSentiment(r);setSentScore(r.sentiment_score);
+      if(r.sentiment_score>=55){
         const t=new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
         setAlerts(p=>[{time:t,color:r.sentiment_score>=75?"#ff3c3c":"#ffbe00",text:`AI: ${r.risk_level} (${r.sentiment_score}). ${r.recommended_action}`},...p]);
       }
-    } catch { setSentiment({error:"Errore analisi AI."}); }
+    }catch{setSentiment({error:"Errore analisi AI."});}
     setAiLoading(false);
   },[newsText]);
 
-  // Test Telegram
-  const testTelegram = useCallback(async()=>{
-    await sendAlert(42, 38, 45, 44, "refresh", ["Test connessione MarketSentinel"]);
+  const testTelegram=useCallback(async()=>{
+    await sendAlert(42,38,45,44,"refresh",["Test connessione MarketSentinel"]);
   },[sendAlert]);
 
-  const tScore  = techScore  ?? 50;
-  const mScore  = macroScore ?? 50;
-  const sentW   = sentScore  ?? 50;
-  const overall = Math.round(tScore*0.4+mScore*0.3+sentW*0.3);
+  const tScore=techScore??50;
+  const mScore=macroScore??50;
+  const sentW=sentScore??50;
+  const overall=Math.round(tScore*0.4+mScore*0.3+sentW*0.3);
   const alertInfo=riskLabel(overall);
   const color=riskColor(overall);
   const isPolyLoading=polyStatus==="loading";
@@ -485,7 +485,7 @@ export default function MarketSentinel() {
   const hasBothKeys=!!polyKey.trim()&&!!fredKey.trim();
   const hasTgConfig=!!tgToken.trim()&&!!tgChat.trim();
 
-  return (
+  return(
     <>
       <style>{styles}</style>
       <div className="sentinel">
@@ -510,7 +510,7 @@ export default function MarketSentinel() {
           <span className={hasBothKeys?"keys-saved":"keys-missing"}>{hasBothKeys?"● Key salvate":"○ Inserisci le key per attivare"}</span>
         </div>
 
-        {/* POLYGON KEY */}
+        {/* POLYGON */}
         <div className="apikey-bar">
           <span className="apikey-label">Polygon.io Key</span>
           <input className="apikey-input" type="password" placeholder="API key Polygon.io…" value={polyKey} onChange={e=>setPolyKey(e.target.value)}/>
@@ -521,10 +521,10 @@ export default function MarketSentinel() {
             {polyStatus==="ok"&&`✓ ${polyUpdate} (EOD)`}{polyStatus==="error"&&`✗ ${polyMsg}`}
             {polyStatus==="loading"&&`⏳ ${polyMsg} (~65s)`}{polyStatus===null&&"— In attesa"}
           </span>
-          {polyKey&&<button className="btn-clear" onClick={()=>setPolyKey("")}>✕ dimentica</button>}
+          {polyKey&&<button className="btn-clear" onClick={()=>setPolyKey("")}>✕</button>}
         </div>
 
-        {/* FRED KEY */}
+        {/* FRED */}
         <div className="apikey-bar">
           <span className="apikey-label">FRED API Key</span>
           <input className="apikey-input" type="password" placeholder="API key St. Louis Fed…" value={fredKey} onChange={e=>setFredKey(e.target.value)}/>
@@ -535,19 +535,32 @@ export default function MarketSentinel() {
             {fredStatus==="ok"&&`✓ ${fredUpdate} (live)`}{fredStatus==="error"&&`✗ ${fredMsg}`}
             {fredStatus==="loading"&&`⏳ ${fredMsg}`}{fredStatus===null&&"— In attesa"}
           </span>
-          {fredKey&&<button className="btn-clear" onClick={()=>setFredKey("")}>✕ dimentica</button>}
+          {fredKey&&<button className="btn-clear" onClick={()=>setFredKey("")}>✕</button>}
         </div>
 
-        {/* TELEGRAM CONFIG */}
+        {/* NEWS API */}
+        <div className="apikey-bar">
+          <span className="apikey-label">NewsAPI Key</span>
+          <input className="apikey-input" type="password" placeholder="API key NewsAPI.org…" value={newsKey} onChange={e=>setNewsKey(e.target.value)}/>
+          <button className="btn-fetch" onClick={fetchNewsAuto} disabled={!newsKey.trim()||newsLoading}>
+            {newsLoading?<span className="loading-dots">Fetch</span>:"▶ Carica News"}
+          </button>
+          <span className="fetch-status" style={{color:newsCount?"#00e5a0":"#3d5060"}}>
+            {newsCount?`✓ ${newsCount} notizie caricate`:"— In attesa"}
+          </span>
+          {newsKey&&<button className="btn-clear" onClick={()=>setNewsKey("")}>✕</button>}
+        </div>
+
+        {/* TELEGRAM */}
         <div className="tg-bar">
           <span className="tg-label">Telegram</span>
-          <input className="apikey-input" type="password" placeholder="Bot token (da BotFather)…" value={tgToken} onChange={e=>setTgToken(e.target.value)} style={{maxWidth:280}}/>
-          <input className="apikey-input" type="text" placeholder="Chat ID (es. 107841202)…" value={tgChat} onChange={e=>setTgChat(e.target.value)} style={{maxWidth:160}}/>
+          <input className="apikey-input" type="password" placeholder="Bot token…" value={tgToken} onChange={e=>setTgToken(e.target.value)} style={{maxWidth:280}}/>
+          <input className="apikey-input" type="text" placeholder="Chat ID…" value={tgChat} onChange={e=>setTgChat(e.target.value)} style={{maxWidth:160}}/>
           <button className="btn-test" onClick={testTelegram} disabled={!hasTgConfig||tgStatus==="sending"}>
-            {tgStatus==="sending"?"⏳ Invio…":"📱 Test"}
+            {tgStatus==="sending"?"⏳":"📱 Test"}
           </button>
           <span className="tg-status" style={{color:tgStatus==="ok"?"#00e5a0":tgStatus==="error"?"#ff3c3c":"#3d5060"}}>
-            {tgStatus==="ok"&&"✓ Inviato"}{tgStatus==="error"&&"✗ Errore"}{tgStatus==="sending"&&"…"}{!tgStatus&&(hasTgConfig?"● Configurato":"○ Opzionale")}
+            {tgStatus==="ok"&&"✓ Inviato"}{tgStatus==="error"&&"✗ Errore"}{!tgStatus&&(hasTgConfig?"● Configurato":"○ Opzionale")}
           </span>
           {tgToken&&<button className="btn-clear" onClick={()=>{setTgToken("");setTgChat("");}}>✕</button>}
         </div>
@@ -612,13 +625,23 @@ export default function MarketSentinel() {
         {/* BOTTOM */}
         <div className="grid-bottom">
           <div className="card" style={{gridColumn:"span 2"}}>
-            <div className="card-title">Analisi Sentiment — Claude AI</div>
+            <div className="card-title">
+              Analisi Sentiment — Claude AI
+              {newsCount&&<span className="data-tag live">▲ NewsAPI · {newsCount} notizie</span>}
+            </div>
             <textarea className="news-input"
-              placeholder={"Incolla notizie finanziarie/geopolitiche...\n\nEs: \"Fed segnala tassi alti più a lungo. Tensioni in Medio Oriente. PMI manifatturiero sotto 50.\""}
+              placeholder={"Le notizie vengono caricate automaticamente da NewsAPI.\nOppure incolla manualmente titoli/testo da analizzare."}
               value={newsText} onChange={e=>setNewsText(e.target.value)}/>
-            <button className="btn-analyze" onClick={handleAnalyze} disabled={aiLoading||!newsText.trim()}>
-              {aiLoading?<span className="loading-dots">Analisi in corso</span>:"▶ Analizza Sentiment"}
-            </button>
+            <div className="news-actions">
+              <button className="btn-fetch-news" onClick={fetchNewsAuto} disabled={!newsKey.trim()||newsLoading}>
+                {newsLoading?<span className="loading-dots">Caricamento news</span>:"🔄 Aggiorna notizie"}
+              </button>
+              <button className="btn-analyze" onClick={handleAnalyze} disabled={aiLoading||!newsText.trim()}>
+                {aiLoading?<span className="loading-dots">Analisi in corso</span>:"▶ Analizza Sentiment"}
+              </button>
+            </div>
+            {!newsKey.trim()&&<p className="news-count">Inserisci la NewsAPI key per il caricamento automatico.</p>}
+
             {sentiment&&!sentiment.error&&(
               <div className="sentiment-result">
                 <div className="sentiment-score-row">
