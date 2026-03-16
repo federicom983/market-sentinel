@@ -185,14 +185,14 @@ async function getPrev(ticker,key) {
 
 // ─── FRED via backend ─────────────────────────────────────────────────────────
 async function fetchFredData(fredKey) {
-  const r=await fetch(`https://market-sentinel-backend-production.up.railway.app/api/fred-data?api_key=${fredKey}`);
+  const r=await fetch(`http://localhost:8000/api/fred-data?api_key=${fredKey}`);
   if (!r.ok) { const e=await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
   return r.json();
 }
 
 // ─── TELEGRAM via backend ─────────────────────────────────────────────────────
 async function sendTelegramAlert(payload) {
-  const r = await fetch("https://market-sentinel-backend-production.up.railway.app/api/send-alert", {
+  const r = await fetch("http://localhost:8000/api/send-alert", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
