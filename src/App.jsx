@@ -250,17 +250,13 @@ function SigRow({name,val,badge,label,shimmer}){
 }
 
 async function claudeSentiment(text){
-  const r=await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      model:"claude-sonnet-4-20250514",max_tokens:1000,
-      system:`Analista finanziario. SOLO JSON valido:
-{"sentiment_score":<0-100>,"risk_level":"<BASSO|MEDIO|ELEVATO|CRITICO>","key_risks":["r1","r2","r3"],"summary":"<2 frasi IT>","recommended_action":"<1 frase IT>"}`,
-      messages:[{role:"user",content:`Analizza:\n\n${text}`}],
-    }),
+  const r=await fetch(`${BACKEND_URL}/api/sentiment`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text}),
   });
-  const d=await r.json();
-  return JSON.parse(d.content.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim());
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${r.status}`);}
+  return r.json();
 }
 
 const EMPTY_MKT  = ["S&P500 (SPY)","Nasdaq (QQQ)","VIXY","Gold (GLD)","Dollar (UUP)"].map(n=>({name:n,val:"—",chg:"—",dir:"neu"}));
