@@ -69,7 +69,7 @@ const styles = `
   @keyframes pulse { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:0.5;transform:scale(0.8);} }
 
   .grid-main   { display: grid; grid-template-columns: 280px 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-  .grid-bottom { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .grid-bottom { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
   .card { background: #0d1219; border: 1px solid #1a2330; border-radius: 6px; padding: 20px; }
   .card-title { font-family: 'Syne', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #3d5060; margin-bottom: 16px; }
 
@@ -201,6 +201,18 @@ async function fetchNews(newsKey){
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${r.status}`);}
   return r.json();
 }
+async function fetchConsultingNews(newsKey){
+  const r=await fetch(`${BACKEND_URL}/api/consulting-news?api_key=${newsKey}`);
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${r.status}`);}
+  return r.json();
+}
+async function analyzeConsulting(text){
+  const r=await fetch(`${BACKEND_URL}/api/consulting-sentiment`,{
+    method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text}),
+  });
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${r.status}`);}
+  return r.json();
+}
 async function sendTelegramAlert(payload){
   const r=await fetch(`${BACKEND_URL}/api/send-alert`,{
     method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),
@@ -295,7 +307,8 @@ export default function MarketSentinel(){
   const [aiLoading,setAiLoading]       = useState(false);
   const [sentiment,setSentiment]       = useState(null);
   const [sentScore,setSentScore]       = useState(null);
-  const [tgStatus,setTgStatus]         = useState(null);
+  const [consultingScore,setConsultingScore] = useState(null);
+  const [consultingResult,setConsultingResult] = useState(null);
   const [alerts,setAlerts] = useState([
     {time:"—",color:"#3d5060",text:"Carica i dati per attivare il monitoraggio live."},
   ]);
@@ -397,9 +410,23 @@ export default function MarketSentinel(){
     if(!newsKey.trim())return;
     setNewsLoading(true);
     try{
-      const data=await fetchNews(newsKey.trim());
-      setNewsText(data.text);
-      setNewsCount(data.count);
+      // Fetch news generali e consulting in parallelo
+      const [newsData, consultingData] = await Promise.allSettled([
+        fetchNews(newsKey.trim()),
+        fetchConsultingNews(newsKey.trim()),
+      ]);
+      if(newsData.status==="fulfilled"){
+        setNewsText(newsData.value.text);
+        setNewsCount(newsData.value.count);
+      }
+      // Analisi automatica opinioni consulting
+      if(consultingData.status==="fulfilled" && consultingData.value.text){
+        try{
+          const result = await analyzeConsulting(consultingData.value.text);
+          setConsultingScore(result.consulting_score);
+          setConsultingResult(result);
+        }catch(_){}
+      }
     }catch(e){
       const t=new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
       setAlerts(p=>[{time:t,color:"#ff3c3c",text:`NewsAPI: ${e.message}`},...p]);
@@ -472,7 +499,8 @@ export default function MarketSentinel(){
   const tScore=techScore??50;
   const mScore=macroScore??50;
   const sentW=sentScore??50;
-  const overall=Math.round(tScore*0.4+mScore*0.3+sentW*0.3);
+  const consW=consultingScore??50;
+  const overall=Math.round(tScore*0.40+mScore*0.25+sentW*0.25+consW*0.10);
   const alertInfo=riskLabel(overall);
   const color=riskColor(overall);
   const isPolyLoading=polyStatus==="loading";
@@ -589,7 +617,7 @@ export default function MarketSentinel(){
               <div className="gauge-score" style={{color}}>{overall}</div>
               <div className="gauge-label" style={{color}}>{alertInfo.cls==="danger"?"PERICOLO":alertInfo.cls==="watch"?"ATTENZIONE":"STABILE"}</div>
               <div className="gauge-breakdown">
-                {[{label:"Tecnico",score:tScore},{label:"Macro",score:mScore},{label:"Sentiment",score:sentW}].map(b=>(
+                {[{label:"Tecnico",score:tScore},{label:"Macro",score:mScore},{label:"Sentiment",score:sentW},{label:"Consulting",score:consW}].map(b=>(
                   <div className="gb-row" key={b.label}>
                     <span className="gb-label">{b.label}</span>
                     <div className="gb-bar-wrap"><div className="gb-bar" style={{width:`${b.score}%`,background:riskColor(b.score)}}/></div>
@@ -597,7 +625,7 @@ export default function MarketSentinel(){
                   </div>
                 ))}
               </div>
-              <p className="section-note">Pesi: 40% tecnico · 30% macro · 30% sentiment AI</p>
+              <p className="section-note">Pesi: 40% tecnico · 25% macro · 25% sentiment · 10% consulting</p>
             </div>
           </div>
 
@@ -650,6 +678,35 @@ export default function MarketSentinel(){
               </div>
             )}
             {sentiment?.error&&<div className="sentiment-result" style={{color:"#ff3c3c"}}>{sentiment.error}</div>}
+          </div>
+
+          {/* CONSULTING OPINIONS */}
+          <div className="card">
+            <div className="card-title">
+              Opinioni Consulting
+              <span className={`data-tag ${consultingResult?"live":"wait"}`}>
+                {consultingResult?`score ${consW}`:"in attesa"}
+              </span>
+            </div>
+            {consultingResult ? (
+              <div>
+                <div className="sentiment-score-row" style={{marginBottom:10}}>
+                  <div className="sentiment-score-num" style={{color:riskColor(consW)}}>{consW}</div>
+                  <div>
+                    <div className="sentiment-score-label">Consulting Score</div>
+                    <div style={{color:riskColor(consW),fontSize:12,fontWeight:700}}>{consultingResult.outlook}</div>
+                  </div>
+                </div>
+                <p style={{fontSize:11,color:"#8fa0b0",marginBottom:8,lineHeight:1.6}}>{consultingResult.summary}</p>
+                <div>
+                  {consultingResult.key_views?.map((v,i)=>(
+                    <span key={i} style={{display:"inline-block",margin:"0 6px 4px 0",padding:"2px 8px",background:"#111",borderRadius:2,fontSize:10,color:"#8fa0b0"}}>{v}</span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="section-note">Carica le notizie con NewsAPI per analizzare le opinioni delle banche d'investimento.</p>
+            )}
           </div>
 
           <div className="card">
