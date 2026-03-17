@@ -309,6 +309,7 @@ export default function MarketSentinel(){
   const [sentScore,setSentScore]       = useState(null);
   const [consultingScore,setConsultingScore] = useState(null);
   const [consultingResult,setConsultingResult] = useState(null);
+  const [tgStatus,setTgStatus]       = useState(null);
   const [alerts,setAlerts] = useState([
     {time:"—",color:"#3d5060",text:"Carica i dati per attivare il monitoraggio live."},
   ]);
