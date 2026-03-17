@@ -722,6 +722,45 @@ export default function MarketSentinel(){
             </div>
           </div>
         </div>
+
+        {/* LEGENDA */}
+        <div style={{marginTop:24,padding:"20px 24px",background:"#0d1219",border:"1px solid #1a2330",borderRadius:6}}>
+          <div style={{fontFamily:"'Syne',sans-serif",fontSize:10,fontWeight:700,letterSpacing:3,textTransform:"uppercase",color:"#3d5060",marginBottom:16}}>Legenda Indicatori</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:24,fontSize:11,color:"#8fa0b0",lineHeight:1.7}}>
+            <div>
+              <div style={{color:"#c8d0d8",fontWeight:700,marginBottom:6}}>🎯 Risk Score (0–100)</div>
+              <div><span style={{color:"#00e5a0"}}>0–54</span> — Mercato stabile</div>
+              <div><span style={{color:"#ffbe00"}}>55–74</span> — Attenzione</div>
+              <div><span style={{color:"#ff3c3c"}}>75–100</span> — Rischio elevato</div>
+              <div style={{marginTop:8,color:"#5a7080",fontSize:10}}>Pesi: 40% tecnico · 25% macro · 25% sentiment · 10% consulting</div>
+            </div>
+            <div>
+              <div style={{color:"#c8d0d8",fontWeight:700,marginBottom:6}}>📈 Segnali Tecnici</div>
+              <div><span style={{color:"#c8d0d8"}}>VIXY</span> — Proxy del VIX (volatilità)</div>
+              <div><span style={{color:"#c8d0d8"}}>RSI &gt;70</span> — Ipercomprato (rischio)</div>
+              <div><span style={{color:"#c8d0d8"}}>RSI &lt;30</span> — Ipervenduto</div>
+              <div><span style={{color:"#c8d0d8"}}>MA50/200 &lt;1</span> — Death Cross</div>
+              <div><span style={{color:"#c8d0d8"}}>MACD &lt;−2</span> — Momentum ribassista</div>
+            </div>
+            <div>
+              <div style={{color:"#c8d0d8",fontWeight:700,marginBottom:6}}>🏦 Segnali Macro</div>
+              <div><span style={{color:"#c8d0d8"}}>CPI</span> — Inflazione YoY (target 2%)</div>
+              <div><span style={{color:"#c8d0d8"}}>Fed Rate</span> — Costo del denaro</div>
+              <div><span style={{color:"#c8d0d8"}}>Consumer Sent.</span> — Fiducia consumatori</div>
+              <div><span style={{color:"#c8d0d8"}}>Yield 10Y−2Y</span> — Curva rendimenti</div>
+              <div><span style={{color:"#c8d0d8"}}>Disoccupazione</span> — Mercato lavoro</div>
+            </div>
+            <div>
+              <div style={{color:"#c8d0d8",fontWeight:700,marginBottom:6}}>🤖 Sentiment & Consulting</div>
+              <div><span style={{color:"#c8d0d8"}}>Sentiment</span> — AI su notizie finanziarie</div>
+              <div><span style={{color:"#c8d0d8"}}>Consulting</span> — Opinioni GS, MS, JPM, BLK</div>
+              <div style={{marginTop:6}}><span style={{color:"#00e5a0"}}>0–30</span> — Ottimismo / nessun rischio</div>
+              <div><span style={{color:"#ffbe00"}}>31–55</span> — Cautela / rischi moderati</div>
+              <div><span style={{color:"#ff3c3c"}}>56–100</span> — Pessimismo / rischio elevato</div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </>
   );
