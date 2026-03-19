@@ -222,7 +222,7 @@ function calcAssetScores({techScoreUS, techScoreEU, macroScoreUS, macroScoreEU, 
 
 // ─── POLYGON ─────────────────────────────────────────────────────────────────
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-const DELAY=13500;
+const DELAY=15000;
 async function polyGet(path,key){
   const sep=path.includes("?")?"&":"?";
   const r=await fetch(`https://api.polygon.io${path}${sep}apiKey=${key}`);
